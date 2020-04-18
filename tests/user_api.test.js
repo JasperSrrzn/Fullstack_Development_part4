@@ -15,7 +15,7 @@ describe('when there is initially one user at db', () => {
     const user = new User({
       username: 'root',
       name:'root',
-      password: passwordHash})
+      passwordHash: passwordHash})
 
     await user.save()
   })

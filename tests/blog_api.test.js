@@ -1,9 +1,13 @@
 const mongoose = require('mongoose')
+const bcrypt = require('bcrypt')
 const supertest = require('supertest')
 const helper = require('./test_helper')
 const app = require('../app')
 const api = supertest(app)
 const Blog = require('../models/blog')
+const User = require('../models/user')
+
+let token;
 
 beforeEach(async () => {
   await Blog.deleteMany({})
@@ -11,6 +15,18 @@ beforeEach(async () => {
   const blogObjects = helper.initialBlogs.map(blog => new Blog(blog))
   const promiseArray = blogObjects.map(note=> note.save())
   await Promise.all(promiseArray)
+
+  await User.deleteMany({})
+
+  const passwordHash = await bcrypt.hash('secret',10)
+  const user = new User({
+    username: 'root',
+    name:'root',
+    passwordHash: passwordHash})
+
+  await user.save()
+  const login = await api.post('/api/login').send({username: 'root', password: 'secret'})
+  token = 'bearer '.concat(login.body.token)
 })
 
 describe('when there are initially some blogs stored', () => {
@@ -47,7 +63,7 @@ describe('when there are initially some blogs stored', () => {
 })
 
 describe('adding blogs', () => {
-  test('a valid blog can be added', async () => {
+  test('a valid blog can be added when correctly authorized', async () => {
     const newBlog = {
       title: 'testing POST requests are easy',
       author: 'Jasper Sarrazin',
@@ -57,6 +73,7 @@ describe('adding blogs', () => {
 
     await api
       .post('/api/blogs')
+      .set('Authorization',token)
       .send(newBlog)
       .expect(201)
       .expect('Content-Type',/application\/json/)
@@ -70,6 +87,31 @@ describe('adding blogs', () => {
     expect(blogsAtEnd.map(blog=>blog.author)).toContain(newBlog.author)
   })
 
+  test('unauthorized adding of a blog fails with the correct status and message', async () => {
+
+    const newBlog = {
+      title: 'testing POST requests are easy',
+      author: 'Jasper Sarrazin',
+      url: 'inspiring-blogs.com',
+      likes: '684'
+    }
+
+    const result = await api
+      .post('/api/blogs')
+      .send(newBlog)
+      .expect(401)
+      .expect('Content-Type',/application\/json/)
+
+    expect(result.body.error).toContain('invalid token')
+
+    const blogsAtEnd = await helper.blogsInDb()
+
+    expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length)
+
+
+
+  })
+
   test('a valid blog with empty likes is stored with 0 likes', async ()=> {
     const newBlog = {
       title: 'This is the worst blog ever',
@@ -79,6 +121,7 @@ describe('adding blogs', () => {
 
     await api
       .post('/api/blogs')
+      .set('Authorization',token)
       .send(newBlog)
       .expect(201)
       .expect('Content-Type',/application\/json/)
@@ -105,6 +148,7 @@ describe('adding blogs', () => {
 
     await api
       .post('/api/blogs')
+      .set('Authorization',token)
       .send(newBlog)
       .expect(400)
 
@@ -141,18 +185,63 @@ describe('viewing a specific blog', () => {
 
 describe('deleting blogs', () => {
   test('succeeds with status 204 if id is valid', async () => {
+    const newBlog = {
+      title: 'testing POST requests are easy',
+      author: 'Jasper Sarrazin',
+      url: 'inspiring-blogs.com',
+      likes: '684'
+    }
+
+    const addedBlog = await api
+      .post('/api/blogs')
+      .set('Authorization',token)
+      .send(newBlog)
+      .expect(201)
+      .expect('Content-Type',/application\/json/)
+
+
     const blogsAtStart = await helper.blogsInDb()
-    const blogToDelete = blogsAtStart[0]
+    const blogToDelete = addedBlog
 
     await api
-      .delete(`/api/blogs/${blogToDelete.id}`)
+      .delete(`/api/blogs/${blogToDelete.body.id}`)
+      .set('Authorization',token)
       .expect(204)
 
     const blogsAtEnd = await helper.blogsInDb()
 
-    expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length - 1)
+    expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length)
 
     expect(blogsAtEnd).not.toContainEqual(blogToDelete)
+  })
+
+  test('unauthorized deleting of a blog fails', async () => {
+    const newBlog = {
+      title: 'testing POST requests are easy',
+      author: 'Jasper Sarrazin',
+      url: 'inspiring-blogs.com',
+      likes: '684'
+    }
+
+    const addedBlog = await api
+      .post('/api/blogs')
+      .set('Authorization',token)
+      .send(newBlog)
+      .expect(201)
+      .expect('Content-Type',/application\/json/)
+
+
+    const blogsAtStart = await helper.blogsInDb()
+    const blogToDelete = addedBlog
+
+    const result = await api
+      .delete(`/api/blogs/${blogToDelete.body.id}`)
+      .expect(401)
+
+    expect(result.body.error).toContain('invalid token')
+    const blogsAtEnd = await helper.blogsInDb()
+
+    expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length +1)
   })
 })
 
