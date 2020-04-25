@@ -70,12 +70,17 @@ blogsRouter.delete('/:id', async (request, response) => {
 
 blogsRouter.put('/:id', async (request, response) => {
   const body = request.body
-
   const blog = {
+    title: body.title,
+    author: body.author,
+    url: body.url,
     likes: body.likes
   }
 
-  const updatedBlog = await Blog.findByIdAndUpdate(request.params.id, blog, {new: true} )
+  const updatedBlog = await Blog
+    .findByIdAndUpdate(request.params.id, blog, {new: true} )
+    .populate('user', {username: 1, name:1})
+
   if (updatedBlog){
     response.json(updatedBlog.toJSON())
   } else {
